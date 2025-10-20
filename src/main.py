@@ -1,10 +1,33 @@
 import argparse
 import os
 import sys
+import tomllib
 
 def error(message):
     print(f"\nОшибка: {message}")
     sys.exit(1)
+
+def read_pyproject(path):  # чтение toml
+    if not os.path.exists(path):
+        error(f"Файл {path} не найден.")
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+def parse_dependencies(project_data):  # достаем зависимости
+    deps = {}
+    try:
+        for dep in project_data["project"]["dependencies"]:
+            name, version = dep.split(">=")
+            deps[name.strip()] = version.strip()
+    except KeyError:
+        deps = {}
+    return deps
+
+def compare_dependencies(dep1, dep2):  # сравнение
+    added = [pkg for pkg in dep2 if pkg not in dep1]
+    removed = [pkg for pkg in dep1 if pkg not in dep2]
+    changed = [pkg for pkg in dep1 if pkg in dep2 and dep1[pkg] != dep2[pkg]]
+    return added, removed, changed
 
 def main():
     parser = argparse.ArgumentParser()
@@ -16,8 +39,14 @@ def main():
     parser.add_argument("--version", required=True, help="Версия пакета")
     parser.add_argument("--ascii-tree", type=str, required=False, default="False", help="Вывод в формате ASCII-дерева (True/False)")
     parser.add_argument("--filter", default="", help="Подстрока для фильтрации пакетов")
-
+    parser.add_argument("--file1", required=True, help="Путь к первому pyproject.toml")
+    parser.add_argument("--file2", required=True, help="Путь ко второму pyproject.toml")
     args = parser.parse_args()
+
+    # Делаем пути абсолютными, чтобы не было ошибок поиска
+    args.repo = os.path.abspath(args.repo)
+    args.file1 = os.path.abspath(args.file1)
+    args.file2 = os.path.abspath(args.file2)
 
     # Проверка параметра --package-name
     if not args.package_name.strip():
@@ -58,6 +87,18 @@ def main():
     print(f"Версия: {args.version}")
     print(f"ASCII-дерево: {args.ascii_tree}")
     print(f"Фильтр: {args.filter or '(не задан)'}")
+
+    # Чтение и сравнение зависимостей
+    project1 = read_pyproject(args.file1)
+    project2 = read_pyproject(args.file2)
+    deps1 = parse_dependencies(project1)
+    deps2 = parse_dependencies(project2)
+    added, removed, changed = compare_dependencies(deps1, deps2)
+
+    print("\nРезультаты сравнения зависимостей:")
+    print(f"Добавлены: {added or '—'}")
+    print(f"Удалены: {removed or '—'}")
+    print(f"Изменены: {changed or '—'}")
 
 if __name__ == "__main__":
     main()

@@ -115,3 +115,111 @@ python src/main.py --package-name testpkg --repo ./repo --repo-mode local --vers
 Проверка: успешный запуск и вывод всех параметров без ошибок.
 
 
+---
+
+# Этап 2 — Сравнение зависимостей
+
+## Назначение
+
+На этом этапе приложение сравнивает зависимости из двух файлов `pyproject.toml`
+и выводит различия: какие зависимости были добавлены, удалены или изменены.
+
+Проверяются параметры:
+
+* Имя пакета (`--package-name`)
+* Репозиторий (`--repo`)
+* Режим (`--repo-mode`)
+* Версия (`--version`)
+* Формат вывода (`--ascii-tree`)
+* Фильтр (`--filter`)
+* Первый файл (`--file1`)
+* Второй файл (`--file2`)
+
+Перед запуском проверяется наличие всех обязательных параметров и существование указанных путей.
+
+---
+
+## Тесты
+
+**Тест 1. Отсутствует обязательный параметр**
+
+```bash
+python src/main.py --repo ./repo --repo-mode local --version 1.0.0 --file1 ./repo/pyproject_1.toml --file2 ./repo/pyproject_2.toml
+```
+
+Проверка: сообщение об ошибке, что не указано имя пакета.
+
+---
+
+**Тест 2. Несуществующий путь к файлу**
+
+```bash
+python src/main.py --package-name testpkg --repo ./repo --repo-mode local --version 1.0.0 --file1 ./repo/no_file.toml --file2 ./repo/pyproject_2.toml
+```
+
+Проверка: сообщение об ошибке, что файл не найден.
+
+---
+
+**Тест 3. Пустой фильтр**
+
+```bash
+python src/main.py --package-name testpkg --repo ./repo --repo-mode local --version 1.0.0 --ascii-tree False --filter "" --file1 ./repo/pyproject_1.toml --file2 ./repo/pyproject_2.toml
+```
+
+Проверка: фильтр не задан, программа выводит "(не задан)".
+
+---
+
+**Тест 4. Сравнение двух версий с различиями**
+
+```bash
+python src/main.py \
+  --package-name testpkg \
+  --repo ./repo \
+  --repo-mode local \
+  --version 1.0.0 \
+  --ascii-tree False \
+  --filter core \
+  --file1 ./repo/pyproject_1.toml \
+  --file2 ./repo/pyproject_2.toml
+```
+
+Проверка: успешный запуск и вывод результатов сравнения зависимостей.
+
+Пример вывода:
+
+```
+Настройки приложения:
+Имя пакета: testpkg
+Репозиторий: /Users/veronikadenisenko/PycharmProjects/dep_visualizer/repo
+Режим: local
+Версия: 1.0.0
+ASCII-дерево: False
+Фильтр: core
+
+Результаты сравнения зависимостей:
+Добавлены: ['matplotlib']
+Удалены: ['numpy']
+Изменены: ['requests']
+```
+
+---
+
+**Тест 5. Одинаковые файлы**
+
+```bash
+python src/main.py \
+  --package-name testpkg \
+  --repo ./repo \
+  --repo-mode local \
+  --version 1.0.0 \
+  --ascii-tree False \
+  --filter core \
+  --file1 ./repo/pyproject_1.toml \
+  --file2 ./repo/pyproject_1.toml
+```
+
+Проверка: вывод, что различий в зависимостях нет.
+
+---

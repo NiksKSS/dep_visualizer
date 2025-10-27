@@ -1,8 +1,0 @@
-[project]
-name = "testpkg"
-version = "1.1.0"
-dependencies = [
-    "requests>=2.31",
-    "pandas>=2.0",
-    "matplotlib>=3.9"
-]

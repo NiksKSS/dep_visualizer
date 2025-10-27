@@ -1,83 +1,86 @@
 import argparse
 import os
 import sys
-import tomllib
+import ast
+import subprocess
+import tempfile
+import shutil
 
 def error(message):
     print(f"\nОшибка: {message}")
     sys.exit(1)
 
-def read_pyproject(path):  # чтение toml
-    if not os.path.exists(path):
-        error(f"Файл {path} не найден.")
-    with open(path, "rb") as f:
-        return tomllib.load(f)
+def parse_setup_py(path):
+#Извлекаем install_requires из setup.py через ast
+    with open(path, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
 
-def parse_dependencies(project_data):  # достаем зависимости
-    deps = {}
-    try:
-        for dep in project_data["project"]["dependencies"]:
-            name, version = dep.split(">=")
-            deps[name.strip()] = version.strip()
-    except KeyError:
-        deps = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "setup":
+            deps = []
+            for keyword in node.keywords:
+                if keyword.arg == "install_requires":
+                    for elt in keyword.value.elts:
+                        deps.append(getattr(elt, "value", getattr(elt, "s", None)))
+                    return deps
+    return []
+
+def get_dependencies(repo_path):
+#Получаем прямые зависимости пакета из setup.py
+    setup_py = os.path.join(repo_path, "setup.py")
+    if not os.path.exists(setup_py):
+        error("Не найден setup.py в репозитории.")
+    deps = parse_setup_py(setup_py)
     return deps
 
-def compare_dependencies(dep1, dep2):  # сравнение
-    added = [pkg for pkg in dep2 if pkg not in dep1]
-    removed = [pkg for pkg in dep1 if pkg not in dep2]
-    changed = [pkg for pkg in dep1 if pkg in dep2 and dep1[pkg] != dep2[pkg]]
-    return added, removed, changed
+def clone_repo(url):
+#Клонируем git репозиторий во временную папку
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        subprocess.run(["git", "clone", url, tmp_dir], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return tmp_dir
+    except subprocess.CalledProcessError:
+        error(f"Не удалось клонировать репозиторий {url}")
 
 def main():
     parser = argparse.ArgumentParser()
 
-    # Определяем параметры
+    # Определяем параметры CLI
     parser.add_argument("--package-name", required=True, help="Имя анализируемого пакета")
     parser.add_argument("--repo", required=True, help="URL или путь к репозиторию")
     parser.add_argument("--repo-mode", choices=["git", "local"], required=True, help="Режим работы: git или local")
     parser.add_argument("--version", required=True, help="Версия пакета")
-    parser.add_argument("--ascii-tree", type=str, required=False, default="False", help="Вывод в формате ASCII-дерева (True/False)")
+    parser.add_argument("--ascii-tree", type=str, default="False", help="Вывод в формате ASCII-дерева (True/False)")
     parser.add_argument("--filter", default="", help="Подстрока для фильтрации пакетов")
-    parser.add_argument("--file1", required=True, help="Путь к первому pyproject.toml")
-    parser.add_argument("--file2", required=True, help="Путь ко второму pyproject.toml")
+
     args = parser.parse_args()
 
-    # Делаем пути абсолютными, чтобы не было ошибок поиска
-    args.repo = os.path.abspath(args.repo)
-    args.file1 = os.path.abspath(args.file1)
-    args.file2 = os.path.abspath(args.file2)
-
-    # Проверка параметра --package-name
+    # Проверки параметров
     if not args.package_name.strip():
         error("Параметр --package-name не может быть пустым.")
-
-    # Проверка параметра --repo
     if not args.repo.strip():
-        error("Параметр --repo не может быть пустым.")
+        error("Путь к репозиторию не может быть пустым.")
     if args.repo_mode == "local":
         if not os.path.exists(args.repo):
             error(f"Путь '{args.repo}' не найден.")
         if not os.path.isdir(args.repo):
             error(f"Путь '{args.repo}' не является директорией.")
-    elif args.repo_mode == "git":
+    else:  # git
         if not (args.repo.startswith("http://") or args.repo.startswith("https://") or args.repo.endswith(".git")):
             error("Для режима git нужен корректный URL (http/https или .git).")
 
-    # Проверка параметра --version
     if not args.version.strip():
         error("Параметр --version не может быть пустым.")
     if not args.version.replace('.', '').isdigit():
         error("Параметр --version должен содержать только цифры и точки (например, 1.0.0).")
-
-    # Проверка параметра --ascii-tree
     if args.ascii_tree.lower() not in ["true", "false"]:
-        error("Параметр --ascii-tree должен быть логическим (True/False).")
+        error("Параметр --ascii-tree должен быть True/False.")
     args.ascii_tree = args.ascii_tree.lower() == "true"
 
-    # Проверка параметра --filter
-    if args.filter is not None and args.filter.strip() == "":
-        error("Параметр --filter не может быть пустым при указании.")
+    # Обработка фильтра
+    args.filter = args.filter.strip()
+    if not args.filter:
+        args.filter = ""
 
     # Вывод параметров
     print("Настройки приложения:")
@@ -86,19 +89,30 @@ def main():
     print(f"Режим: {args.repo_mode}")
     print(f"Версия: {args.version}")
     print(f"ASCII-дерево: {args.ascii_tree}")
-    print(f"Фильтр: {args.filter or '(не задан)'}")
+    print(f"Фильтр: {args.filter or '(не задан)'}\n")
 
-    # Чтение и сравнение зависимостей
-    project1 = read_pyproject(args.file1)
-    project2 = read_pyproject(args.file2)
-    deps1 = parse_dependencies(project1)
-    deps2 = parse_dependencies(project2)
-    added, removed, changed = compare_dependencies(deps1, deps2)
+    # Получение зависимостей
+    tmp_repo = None
+    if args.repo_mode == "git":
+        tmp_repo = clone_repo(args.repo)
+        repo_path = tmp_repo
+    else:
+        repo_path = args.repo
 
-    print("\nРезультаты сравнения зависимостей:")
-    print(f"Добавлены: {added or '—'}")
-    print(f"Удалены: {removed or '—'}")
-    print(f"Изменены: {changed or '—'}")
+    print("Прямые зависимости пакета:")
+    deps = get_dependencies(repo_path)
+    if args.filter:
+        deps = [d for d in deps if args.filter in d]
+
+    if not deps:
+        print("(зависимости не найдены)")
+    else:
+        for d in deps:
+            print(f"- {d}")
+
+    # Удаляем временный репозиторий после работы
+    if tmp_repo:
+        shutil.rmtree(tmp_repo)
 
 if __name__ == "__main__":
     main()
